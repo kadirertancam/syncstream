@@ -1,8 +1,6 @@
 # SyncStream Production Docker Compose
 # =====================================
 
-version: '3.8'
-
 services:
   # ============================================
   # Frontend - React Application
@@ -31,7 +29,6 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: syncstream-backend
     restart: unless-stopped
     environment:
       - NODE_ENV=production
