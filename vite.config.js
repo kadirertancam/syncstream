@@ -2,10 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
+// Backend URL - Docker uses service name, local uses localhost
+const BACKEND_URL = process.env.VITE_BACKEND_URL || 'http://localhost:4001';
+
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  
+
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -17,15 +20,15 @@ export default defineConfig({
   },
 
   server: {
-    port: 3000,
+    port: parseInt(process.env.PORT || '4080'),
     host: true,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: BACKEND_URL,
         changeOrigin: true,
       },
       '/socket.io': {
-        target: 'http://localhost:3001',
+        target: BACKEND_URL,
         changeOrigin: true,
         ws: true,
       },
