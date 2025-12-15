@@ -2,8 +2,6 @@
 # ======================================
 # Ports: Frontend=4080, Backend=4001 (avoiding 5173, 3001, 5004, 5443, 5678)
 
-version: '3.8'
-
 services:
   # ============================================
   # Frontend - React Development Server
@@ -21,6 +19,8 @@ services:
       - ./index.html:/app/index.html
       - ./vite.config.js:/app/vite.config.js
     environment:
+      - PORT=4080
+      - VITE_BACKEND_URL=http://backend:4001
       - VITE_API_URL=http://localhost:4001
       - VITE_WS_URL=ws://localhost:4001
     networks:
