@@ -1,0 +1,80 @@
+# SyncStream Development Docker Compose
+# ======================================
+# Ports: Frontend=4080, Backend=4001 (avoiding 5173, 3001, 5004, 5443, 5678)
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Frontend - React Development Server
+  # ============================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend.dev
+    container_name: syncstream-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "4080:4080"
+    volumes:
+      - ./src:/app/src
+      - ./index.html:/app/index.html
+      - ./vite.config.js:/app/vite.config.js
+    environment:
+      - VITE_API_URL=http://localhost:4001
+      - VITE_WS_URL=ws://localhost:4001
+    networks:
+      - syncstream-dev-network
+    depends_on:
+      - backend
+
+  # ============================================
+  # Backend - Node.js WebSocket Server
+  # ============================================
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile.dev
+    container_name: syncstream-backend-dev
+    restart: unless-stopped
+    ports:
+      - "4001:4001"
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=4001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CORS_ORIGIN=http://localhost:4080
+    depends_on:
+      - redis
+    networks:
+      - syncstream-dev-network
+
+  # ============================================
+  # Redis - Session & Pub/Sub
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: syncstream-redis-dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-dev-data:/data
+    networks:
+      - syncstream-dev-network
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  syncstream-dev-network:
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  redis-dev-data:
