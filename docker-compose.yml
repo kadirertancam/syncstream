@@ -1,0 +1,182 @@
+# SyncStream Production Docker Compose
+# =====================================
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Frontend - React Application
+  # ============================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: syncstream-frontend
+    restart: unless-stopped
+    environment:
+      - VITE_API_URL=https://api.syncstream.app
+      - VITE_WS_URL=wss://api.syncstream.app
+    networks:
+      - syncstream-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`syncstream.app`)"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+
+  # ============================================
+  # Backend - Node.js WebSocket Server
+  # ============================================
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: syncstream-backend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CORS_ORIGIN=https://syncstream.app
+    depends_on:
+      - redis
+    networks:
+      - syncstream-network
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.syncstream.app`)"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.services.backend.loadbalancer.sticky.cookie=true"
+
+  # ============================================
+  # Redis - Session & Pub/Sub
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: syncstream-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - syncstream-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================
+  # PostgreSQL - User Data (Optional)
+  # ============================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: syncstream-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=syncstream
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=syncstream
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - syncstream-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syncstream"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # Traefik - Reverse Proxy & SSL
+  # ============================================
+  traefik:
+    image: traefik:v3.0
+    container_name: syncstream-traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.email=admin@syncstream.app"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-certificates:/letsencrypt
+    networks:
+      - syncstream-network
+
+  # ============================================
+  # Prometheus - Metrics Collection
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: syncstream-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - syncstream-network
+
+  # ============================================
+  # Grafana - Metrics Dashboard
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: syncstream-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - syncstream-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`metrics.syncstream.app`)"
+      - "traefik.http.routers.grafana.tls=true"
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  syncstream-network:
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  redis-data:
+  postgres-data:
+  traefik-certificates:
+  prometheus-data:
+  grafana-data:
